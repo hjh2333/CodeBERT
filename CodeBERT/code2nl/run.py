@@ -1,5 +1,6 @@
 # coding=utf-8
-# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
+# Copyright 2018 The Google AI Language Team Authors and
+#  The HuggingFace Inc. team.
 # Copyright (c) 2018, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,16 +15,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Fine-tuning the library models for language modeling on a text file (GPT, GPT-2, BERT, RoBERTa).
-GPT and GPT-2 are fine-tuned using a causal language modeling (CLM) loss while BERT and RoBERTa are fine-tuned
+Fine-tuning the library models for language modeling on a
+ text file (GPT, GPT-2, BERT, RoBERTa).
+GPT and GPT-2 are fine-tuned using a causal language modeling (CLM)
+ loss while BERT and RoBERTa are fine-tuned
 using a masked language modeling (MLM) loss.
 """
 
 from __future__ import absolute_import
 import os
-import sys
+# import sys
 import bleu
-import pickle
+# import pickle
 import torch
 import json
 import random
@@ -34,17 +37,21 @@ from io import open
 from itertools import cycle
 import torch.nn as nn
 from model import Seq2Seq
-from tqdm import tqdm, trange
-from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler,TensorDataset
+from tqdm import tqdm  # , trange
+from torch.utils.data import DataLoader, SequentialSampler,\
+                             RandomSampler, TensorDataset
+# , Dataset
 from torch.utils.data.distributed import DistributedSampler
-from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
+from transformers import (AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaModel, RobertaTokenizer)
+# WEIGHTS_NAME,
 MODEL_CLASSES = {'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer)}
 
-logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    level = logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class Example(object):
     """A single training/test example."""
@@ -57,25 +64,26 @@ class Example(object):
         self.source = source
         self.target = target
 
+
 def read_examples(filename):
     """Read examples from filename."""
-    examples=[]
-    with open(filename,encoding="utf-8") as f:
+    examples = []
+    with open(filename, encoding="utf-8") as f:
         for idx, line in enumerate(f):
-            line=line.strip()
-            js=json.loads(line)
+            line = line.strip()
+            js = json.loads(line)
             if 'idx' not in js:
-                js['idx']=idx
-            code=' '.join(js['code_tokens']).replace('\n',' ')
-            code=' '.join(code.strip().split())
-            nl=' '.join(js['docstring_tokens']).replace('\n','')
-            nl=' '.join(nl.strip().split())            
+                js['idx'] = idx
+            code = ' '.join(js['code_tokens']).replace('\n', ' ')
+            code = ' '.join(code.strip().split())
+            nl = ' '.join(js['docstring_tokens']).replace('\n', '')
+            nl = ' '.join(nl.strip().split())
             examples.append(
                 Example(
-                        idx = idx,
+                        idx=idx,
                         source=code,
-                        target = nl,
-                        ) 
+                        target=nl,
+                        )
             )
     return examples
 
@@ -88,52 +96,61 @@ class InputFeatures(object):
                  target_ids,
                  source_mask,
                  target_mask,
-
-    ):
+                 ):
         self.example_id = example_id
         self.source_ids = source_ids
         self.target_ids = target_ids
         self.source_mask = source_mask
-        self.target_mask = target_mask       
-        
+        self.target_mask = target_mask 
 
 
-def convert_examples_to_features(examples, tokenizer, args,stage=None):
+def convert_examples_to_features(examples, tokenizer, args, stage=None):
     features = []
     for example_index, example in enumerate(examples):
-        #source
-        source_tokens = tokenizer.tokenize(example.source)[:args.max_source_length-2]
-        source_tokens =[tokenizer.cls_token]+source_tokens+[tokenizer.sep_token]
-        source_ids =  tokenizer.convert_tokens_to_ids(source_tokens) 
+        # source
+        source_tokens = tokenizer.\
+                        tokenize(example.source)[:args.max_source_length-2]
+        source_tokens = [tokenizer.cls_token] + source_tokens +\
+                        [tokenizer.sep_token]
+        source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
         source_mask = [1] * (len(source_tokens))
         padding_length = args.max_source_length - len(source_ids)
-        source_ids+=[tokenizer.pad_token_id]*padding_length
-        source_mask+=[0]*padding_length
+        source_ids += [tokenizer.pad_token_id]*padding_length
+        source_mask += [0]*padding_length
  
-        #target
-        if stage=="test":
+        # target
+        if stage == "test":
             target_tokens = tokenizer.tokenize("None")
         else:
-            target_tokens = tokenizer.tokenize(example.target)[:args.max_target_length-2]
-        target_tokens = [tokenizer.cls_token]+target_tokens+[tokenizer.sep_token]            
+            target_tokens = tokenizer.\
+                            tokenize(example.target)[:args.max_target_length-2]
+        target_tokens = [tokenizer.cls_token] + target_tokens +\
+                        [tokenizer.sep_token]
         target_ids = tokenizer.convert_tokens_to_ids(target_tokens)
-        target_mask = [1] *len(target_ids)
+        target_mask = [1] * len(target_ids)
         padding_length = args.max_target_length - len(target_ids)
-        target_ids+=[tokenizer.pad_token_id]*padding_length
-        target_mask+=[0]*padding_length   
+        target_ids += [tokenizer.pad_token_id]*padding_length
+        target_mask += [0]*padding_length
    
         if example_index < 5:
-            if stage=='train':
+            if stage == 'train':
                 logger.info("*** Example ***")
                 logger.info("idx: {}".format(example.idx))
 
-                logger.info("source_tokens: {}".format([x.replace('\u0120','_') for x in source_tokens]))
-                logger.info("source_ids: {}".format(' '.join(map(str, source_ids))))
-                logger.info("source_mask: {}".format(' '.join(map(str, source_mask))))
-                
-                logger.info("target_tokens: {}".format([x.replace('\u0120','_') for x in target_tokens]))
-                logger.info("target_ids: {}".format(' '.join(map(str, target_ids))))
-                logger.info("target_mask: {}".format(' '.join(map(str, target_mask))))
+                logger.info("source_tokens: {}".
+                            format([x.replace('\u0120', '_')
+                                    for x in source_tokens]))
+                logger.info("source_ids: {}".
+                            format(' '.join(map(str, source_ids))))
+                logger.info("source_mask: {}".
+                            format(' '.join(map(str, source_mask))))
+                logger.info("target_tokens: {}".
+                            format([x.replace('\u0120', '_')
+                                    for x in target_tokens]))
+                logger.info("target_ids: {}".
+                            format(' '.join(map(str, target_ids))))
+                logger.info("target_mask: {}".
+                            format(' '.join(map(str, target_mask))))
        
         features.append(
             InputFeatures(
@@ -147,7 +164,6 @@ def convert_examples_to_features(examples, tokenizer, args,stage=None):
     return features
 
 
-
 def set_seed(args):
     """set random seed."""
     random.seed(args.seed)
@@ -155,27 +171,30 @@ def set_seed(args):
     torch.manual_seed(args.seed)
     if args.n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
-        
+
+
 def main():
     parser = argparse.ArgumentParser()
 
-    ## Required parameters  
+    # Required parameters
     parser.add_argument("--model_type", default=None, type=str, required=True,
                         help="Model type: e.g. roberta")
-    parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
-                        help="Path to pre-trained model: e.g. roberta-base" )   
+    parser.add_argument("--model_name_or_path", default=None, type=str,
+                        required=True,
+                        help="Path to pre-trained model: e.g. roberta-base")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
-                        help="The output directory where the model predictions and checkpoints will be written.")
-    parser.add_argument("--load_model_path", default=None, type=str, 
-                        help="Path to trained model: Should contain the .bin files" )    
-    ## Other parameters
-    parser.add_argument("--train_filename", default=None, type=str, 
+                        help="The output directory where the model predictions \
+                              and checkpoints will be written.")
+    parser.add_argument("--load_model_path", default=None, type=str,
+                        help="Path to trained model: \
+                              Should contain the .bin files")
+    # Other parameters
+    parser.add_argument("--train_filename", default=None, type=str,
                         help="The train filename. Should contain the .jsonl files for this task.")
-    parser.add_argument("--dev_filename", default=None, type=str, 
+    parser.add_argument("--dev_filename", default=None, type=str,
                         help="The dev filename. Should contain the .jsonl files for this task.")
-    parser.add_argument("--test_filename", default=None, type=str, 
-                        help="The test filename. Should contain the .jsonl files for this task.")  
-    
+    parser.add_argument("--test_filename", default=None, type=str,
+                        help="The test filename. Should contain the .jsonl files for this task.")
     parser.add_argument("--config_name", default="", type=str,
                         help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", default="", type=str,
@@ -186,7 +205,6 @@ def main():
     parser.add_argument("--max_target_length", default=32, type=int,
                         help="The maximum total target sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
-    
     parser.add_argument("--do_train", action='store_true',
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
@@ -196,8 +214,7 @@ def main():
     parser.add_argument("--do_lower_case", action='store_true',
                         help="Set this flag if you are using an uncased model.")
     parser.add_argument("--no_cuda", action='store_true',
-                        help="Avoid using CUDA when available") 
-    
+                        help="Avoid using CUDA when available")
     parser.add_argument("--train_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for training.")
     parser.add_argument("--eval_batch_size", default=8, type=int,
@@ -207,7 +224,7 @@ def main():
     parser.add_argument("--learning_rate", default=5e-5, type=float,
                         help="The initial learning rate for Adam.")
     parser.add_argument("--beam_size", default=10, type=int,
-                        help="beam size for beam search")    
+                        help="beam size for beam search")
     parser.add_argument("--weight_decay", default=0.0, type=float,
                         help="Weight deay if we apply some.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float,
@@ -225,7 +242,7 @@ def main():
     parser.add_argument("--warmup_steps", default=0, type=int,
                         help="Linear warmup over warmup_steps.")
     parser.add_argument("--local_rank", type=int, default=-1,
-                        help="For distributed training: local_rank")   
+                        help="For distributed training: local_rank")
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
     # print arguments
@@ -242,25 +259,27 @@ def main():
         torch.distributed.init_process_group(backend='nccl')
         args.n_gpu = 1
     logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s",
-                    args.local_rank, device, args.n_gpu, bool(args.local_rank != -1))
+                   args.local_rank, device, args.n_gpu, bool(args.local_rank != -1))
     args.device = device
     # Set seed
     set_seed(args)
     # make dir if output_dir not exist
     if os.path.exists(args.output_dir) is False:
         os.makedirs(args.output_dir)
-        
+
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path)
-    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,do_lower_case=args.do_lower_case)
-    
-    #budild model
-    encoder = model_class.from_pretrained(args.model_name_or_path,config=config)    
+    config = config_class.from_pretrained(args.config_name
+                                          if args.config_name
+                                          else args.model_name_or_path)
+    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+
+    # budild model
+    encoder = model_class.from_pretrained(args.model_name_or_path, config=config)    
     decoder_layer = nn.TransformerDecoderLayer(d_model=config.hidden_size, nhead=config.num_attention_heads)
     decoder = nn.TransformerDecoder(decoder_layer, num_layers=6)
-    model=Seq2Seq(encoder=encoder,decoder=decoder,config=config,
-                  beam_size=args.beam_size,max_length=args.max_target_length,
-                  sos_id=tokenizer.cls_token_id,eos_id=tokenizer.sep_token_id)
+    model = Seq2Seq(encoder=encoder, decoder=decoder, config=config,
+                    beam_size=args.beam_size, max_length=args.max_target_length,
+                    sos_id=tokenizer.cls_token_id, eos_id=tokenizer.sep_token_id)
     if args.load_model_path is not None:
         logger.info("reload model from {}".format(args.load_model_path))
         model.load_state_dict(torch.load(args.load_model_path))
@@ -278,18 +297,15 @@ def main():
         # multi-gpu training
         model = torch.nn.DataParallel(model)
 
-
-
-
     if args.do_train:
         # Prepare training data loader
         train_examples = read_examples(args.train_filename)
-        train_features = convert_examples_to_features(train_examples, tokenizer,args,stage='train')
+        train_features = convert_examples_to_features(train_examples, tokenizer, args, stage='train')
         all_source_ids = torch.tensor([f.source_ids for f in train_features], dtype=torch.long)
         all_source_mask = torch.tensor([f.source_mask for f in train_features], dtype=torch.long)
         all_target_ids = torch.tensor([f.target_ids for f in train_features], dtype=torch.long)
         all_target_mask = torch.tensor([f.target_mask for f in train_features], dtype=torch.long)    
-        train_data = TensorDataset(all_source_ids,all_source_mask,all_target_ids,all_target_mask)
+        train_data = TensorDataset(all_source_ids, all_source_mask, all_target_ids, all_target_mask)
         
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -342,20 +358,21 @@ def main():
             loss.backward()
 
             if (nb_tr_steps + 1) % args.gradient_accumulation_steps == 0:
-                #Update parameters
+                # Update parameters
                 optimizer.step()
                 optimizer.zero_grad()
                 scheduler.step()
                 global_step += 1
                 eval_flag = True
-                
-            if args.do_eval and ((global_step + 1) %args.eval_steps == 0) and eval_flag:
-                #Eval model with dev dataset
+
+            if args.do_eval\
+               and ((global_step + 1) % args.eval_steps == 0) and eval_flag:
+                # Eval model with dev dataset
                 tr_loss = 0
-                nb_tr_examples, nb_tr_steps = 0, 0                     
-                eval_flag=False    
+                nb_tr_examples, nb_tr_steps = 0, 0
+                eval_flag = False
                 if 'dev_loss' in dev_dataset:
-                    eval_examples,eval_data=dev_dataset['dev_loss']
+                    eval_examples, eval_data = dev_dataset['dev_loss']
                 else:
                     eval_examples = read_examples(args.dev_filename)
                     eval_features = convert_examples_to_features(eval_examples, tokenizer, args,stage='dev')
